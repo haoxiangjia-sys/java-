@@ -1,0 +1,358 @@
+package uk.ac.bris.cs.scotlandyard.model;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
+import java.util.*;
+import javax.annotation.Nonnull;
+
+import uk.ac.bris.cs.scotlandyard.model.Board.GameState;
+import uk.ac.bris.cs.scotlandyard.model.Move.*;
+import uk.ac.bris.cs.scotlandyard.model.Piece.*;
+import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.*;
+
+/**
+ * cw-model
+ * Stage 1: Complete this class
+ */
+public final class MyGameStateFactory implements Factory<GameState> {
+
+	@Nonnull @Override public GameState build(
+			GameSetup setup,
+			Player mrX,
+			ImmutableList<Player> detectives) {
+		return new MyGameState(setup, ImmutableSet.of(MrX.MRX), ImmutableList.of(), mrX, detectives);
+	}
+
+	private static final class MyGameState implements GameState {
+		private final GameSetup setup;
+		private final ImmutableSet<Piece> remaining;
+		private final ImmutableList<LogEntry> log;
+		private final Player mrX;
+		private final List<Player> detectives;
+		private final ImmutableSet<Move> moves;
+		private final ImmutableSet<Piece> winner;
+
+		private Player getPlayer(Piece piece) {
+			if (piece.isMrX()) return this.mrX;
+			for (Player d : this.detectives) {
+				if (d.piece().equals(piece)) return d;
+			}
+			throw new IllegalArgumentException("Piece not found");
+		}
+
+		private ImmutableSet<Piece> calculateNextRemaining(
+				Piece currentPiece,
+				Move move,
+				List<Player> upadatedDetectives) {
+			Set<Piece> next = new HashSet<>();
+
+			if (currentPiece.isMrX()) {
+				// 场景 A: MrX 刚走完 -> 轮到所有【能动】的侦探
+				for (Player d : upadatedDetectives) {
+					// 必须传入 upadatedDetectives 确保占位判定准确
+					if (!makeSingleMoves(setup, upadatedDetectives, d, d.location()).isEmpty()) {
+						next.add(d.piece());
+					}
+				}
+			} else {
+				// 场景 B: 某个侦探刚走完 -> 轮到【本轮还没动】且【能动】的侦探
+				for (Piece p : remaining) {
+					if (!p.equals(currentPiece)) {
+						// 从更新后的列表中找到对应的侦探对象以获取最新位置
+						Player targetDetective = null;
+						for (Player d : upadatedDetectives) {
+							if (d.piece().equals(p)) {
+								targetDetective = d;
+								break;
+							}
+						}
+						if (targetDetective != null &&
+								!makeSingleMoves(setup, upadatedDetectives, targetDetective, targetDetective.location()).isEmpty()) {
+							next.add(p);
+						}
+					}
+				}
+			}
+
+			// 如果没有任何侦探能动，或者侦探全部轮完，回到 MrX
+			if (next.isEmpty()) return ImmutableSet.of(Piece.MrX.MRX);
+			return ImmutableSet.copyOf(next);
+		}
+
+		private void updateDetective(List<Player> detectives, Piece piece, Player updatedMover) {
+			for (int i = 0; i < detectives.size(); i++) {
+				// 检查列表中第 i 个侦探的棋子是否匹配当前移动的棋子
+				if (detectives.get(i).piece().equals(piece)) {
+					// 找到匹配项，用新对象替换旧对象
+					detectives.set(i, updatedMover);
+					return; // 替换后立即返回
+				}
+			}
+			// 理论上程序不应该运行到这里，如果运行到这里说明传入的 piece 不在侦探列表中
+			throw new IllegalArgumentException("Detective piece not found: " + piece);
+		}
+
+		private ImmutableSet<Move> makeMoves() {
+			Set<Move> allMoves = new HashSet<>();
+
+			for (Piece piece : remaining) {
+				// 1. 找到这个棋子对应的 Player 对象和位置
+				Player player = getPlayer(piece);
+				int source = player.location();
+				// 2. 这里的逻辑分两部分：
+				// A. 计算单步移动 (Single Moves)
+				allMoves.addAll(makeSingleMoves(setup, detectives, player, source));
+				// B. 如果是 MrX，还要计算双步移动 (Double Moves)
+				if (piece.isMrX()) {
+					allMoves.addAll(makeDoubleMoves(setup, detectives, player, source));
+				}
+			}
+			return ImmutableSet.copyOf(allMoves);
+		}
+
+		private ImmutableSet<Piece> calculateWinner(Set<Move> availableMoves) {
+			// 1. 侦探赢：抓到了 MrX
+			for (Player d : detectives) {
+				if (d.location() == mrX.location()) return getDetectivePieces();
+			}
+			// 2. MrX 赢：所有回合走完 (Escaped)
+			if (log.size() == setup.moves.size() && remaining.contains(Piece.MrX.MRX)) {
+				return ImmutableSet.of(Piece.MrX.MRX);
+			}
+			// 3. 侦探赢：轮到 MrX 走，但他没地方去了
+			if (remaining.contains(Piece.MrX.MRX) && availableMoves.isEmpty()) {
+				return getDetectivePieces();
+			}
+			// 4. MrX 赢：轮到侦探走，但所有侦探都动不了了
+			// 修正：我们要检查的是“当前待移动的侦探”是否无路可走
+			if (remaining.stream().allMatch(Piece::isDetective) && availableMoves.isEmpty()) {
+				return ImmutableSet.of(Piece.MrX.MRX);
+			}
+
+			// 5. 特殊修正：如果【还没轮到 MrX】，但【下一轮没有侦探能动】
+			// 这对应你测试用例中的情况：MrX 刚走完，calculateNextRemaining 发现没侦探能动，
+			// 直接把 remaining 设回了 MrX，导致上面的 Condition 4 无法触发。
+
+			// 简单高效的判定：如果轮到 MrX，且侦探们在当前位置已经没有任何票或路径动了
+			boolean anyDetectiveCanMove = false;
+			for (Player d : detectives) {
+				if (!makeSingleMoves(setup, detectives, d, d.location()).isEmpty()) {
+					anyDetectiveCanMove = true;
+					break;
+				}
+			}
+			if (!anyDetectiveCanMove) return ImmutableSet.of(Piece.MrX.MRX);
+
+			return ImmutableSet.of();
+		}
+
+		private ImmutableSet<Piece> getDetectivePieces() {
+			Set<Piece> pieces = new HashSet<>();
+			for (Player d : detectives) {
+				pieces.add(d.piece());
+			}
+			return ImmutableSet.copyOf(pieces);
+		}
+
+		private MyGameState(
+				final GameSetup setup,
+				final ImmutableSet<Piece> remaining,
+				final ImmutableList<LogEntry> log,
+				final Player mrX,
+				final List<Player> detectives) {
+			if (setup.moves.isEmpty()) throw new IllegalArgumentException();
+			this.setup = setup;
+			this.remaining = remaining;
+			this.log =log;
+			this.mrX = mrX;
+			this.detectives = detectives;
+			ImmutableSet<Move> tempMoves = makeMoves();
+
+			// 3. 计算赢家（传入刚才算的移动）
+			this.winner = calculateWinner(tempMoves);
+			// 4. 关键：如果已经有赢家了，moves 必须强制为空！
+			if (!this.winner.isEmpty()) {
+				this.moves = ImmutableSet.of();
+			} else {
+				this.moves = tempMoves;
+			}
+
+			if (detectives == null) throw new NullPointerException("Detectives list is empty");
+			Set<Integer> locations = new HashSet<>();
+			for (Player d : detectives) {
+				if (locations.contains(d.location())) throw new IllegalArgumentException("Duplicate location");
+				locations.add(d.location());
+
+				if (d.has(Ticket.DOUBLE)) throw new IllegalArgumentException("No double tickets for detectives");
+				if (d.has(Ticket.SECRET)) throw new IllegalArgumentException("No secret tickets for detectives");
+			}
+            if (setup.graph.nodes().isEmpty()) throw new IllegalArgumentException("Graph is empty!");
+			if (!mrX.isMrX()) throw new IllegalArgumentException("MrX player must be the MrX piece!");
+		}
+
+		private static Set<SingleMove> makeSingleMoves(GameSetup setup, List<Player> detectives, Player player, int source) {
+			Set<SingleMove> moves = new HashSet<>();
+
+			for (int destination : setup.graph.adjacentNodes(source)) {
+				boolean occupied = false;
+				for (Player d : detectives) {
+					if (d.location() == destination) {
+						occupied = true;
+						break;
+					}
+				}
+				if (occupied) continue;
+				for(Transport t : setup.graph.edgeValueOrDefault(source, destination, ImmutableSet.of()) ) {
+					if (player.has(t.requiredTicket())) {
+						moves.add(new SingleMove(player.piece(), source, t.requiredTicket(), destination));
+					}
+				}
+				if (player.isMrX() && player.has(Ticket.SECRET)) {
+					moves.add(new SingleMove(player.piece(), source, Ticket.SECRET, destination));
+				}
+			}
+			return moves;
+		}
+		private ImmutableSet<Move> makeDoubleMoves(GameSetup setup, List<Player> detectives, Player mrX, int source) {
+			// 前置条件检查
+			if (!mrX.has(Ticket.DOUBLE) || setup.moves.size() - log.size() < 2)
+				return ImmutableSet.of();
+
+			Set<Move> doubleMoves = new HashSet<>();
+			// 利用已有的 makeSingleMoves 算出所有合法的“第一步”
+			// 注意：这里需要一个临时的 mrX 对象，因为第一步还没扣 Ticket.DOUBLE
+			for (SingleMove first : makeSingleMoves(setup, detectives, mrX, source)) {
+				// 模拟执行第一步后的状态（扣掉第一张票，更新位置）
+				Player mrXAfterFirstStep = mrX.at(first.destination).use(first.ticket);
+				// 从第一步的目的地出发，算出所有合法的“第二步”
+				for (SingleMove second : makeSingleMoves(setup, detectives, mrXAfterFirstStep, first.destination)) {
+
+					// 组装 DoubleMove
+					doubleMoves.add(new Move.DoubleMove(
+							mrX.piece(), source, first.ticket, first.destination,
+							second.ticket, second.destination));
+				}
+			}
+			return ImmutableSet.copyOf(doubleMoves);
+		}
+
+		@Override@Nonnull
+		public GameSetup getSetup() {
+			return setup;
+		}
+
+		@Override@Nonnull
+		public ImmutableSet<Piece> getPlayers() {
+			List<Piece> all = new ArrayList<>();
+			all.add(mrX.piece());
+			for (Player d : detectives) all.add(d.piece());
+			return ImmutableSet.copyOf(all);
+		}
+
+		@Override@Nonnull
+		public ImmutableList<LogEntry> getMrXTravelLog() {
+			return log;
+		}
+
+		@Override@Nonnull
+		public Optional<Integer> getDetectiveLocation(Detective detective) {
+			for (Player p : detectives) {
+				if (p.piece() == detective) {
+					return Optional.of(p.location());
+				}
+			}
+			return Optional.empty();
+		}
+
+		@Override@Nonnull
+		public Optional<Board.TicketBoard> getPlayerTickets(Piece piece) {
+			Player target = null;
+			if (mrX.piece().equals(piece)) target = mrX;
+			else {
+				for (Player p : detectives) {
+					if (p.piece().equals(piece)) {
+						target = p;
+						break;
+					}
+				}
+			}
+			if (target == null) return Optional.empty();
+			final Player finalTarget = target;
+			return Optional.of(new Board.TicketBoard() {
+				@Override
+				public int getCount(Ticket ticket) {
+					Integer count = finalTarget.tickets().get(ticket);
+					return (count == null) ? 0 : count; // 显式处理，不依赖默认值逻辑
+				}
+			});
+		}
+
+		@Override@Nonnull
+		public ImmutableSet<Move> getAvailableMoves() {return this.moves;}
+
+		@Override@Nonnull
+		public ImmutableSet<Piece> getWinner() {return this.winner;}
+
+		@Override@Nonnull
+		public GameState advance(Move move) {
+			if (!winner.isEmpty()) throw new IllegalArgumentException("Game over!");
+			if (!moves.contains(move)) throw new IllegalArgumentException("Illegal move: " + move);
+			return move.accept(new Move.Visitor<GameState>() {
+
+					@Override
+					public GameState visit(SingleMove singleMove) {
+						Piece piece = singleMove.commencedBy();
+
+						Player nextMrX = MyGameState.this.mrX;
+						List<Player> nextDetectives = new ArrayList<>(MyGameState.this.detectives);
+						List<LogEntry> nextLog = new ArrayList<>(MyGameState.this.log);
+
+						Player mover = getPlayer(piece).at(singleMove.destination).use(singleMove.ticket);
+
+						if (piece.isMrX()) {
+							nextMrX = mover;
+							boolean reveal = setup.moves.get(nextLog.size());
+							nextLog.add(reveal ? LogEntry.reveal(singleMove.ticket, singleMove.destination)
+									: LogEntry.hidden(singleMove.ticket));
+						} else {
+							updateDetective(nextDetectives, piece, mover);
+							nextMrX = nextMrX.give(singleMove.ticket);
+						}
+
+						Set<Piece> nextRemaining = calculateNextRemaining(piece, move, nextDetectives);
+
+						return new MyGameState(setup, ImmutableSet.copyOf(nextRemaining),
+                                ImmutableList.copyOf(nextLog), nextMrX, nextDetectives);
+					}
+					@Override
+					public GameState visit(DoubleMove doubleMove) {
+						Player nextMrX = MyGameState.this.mrX.at(doubleMove.destination2)
+								.use(doubleMove.ticket1)
+								.use(doubleMove.ticket2)
+								.use(Ticket.DOUBLE);
+
+						List<LogEntry> nextLog = new ArrayList<>(MyGameState.this.log);
+						// 第一步：使用当前的 log.size()
+						boolean reveal1 = setup.moves.get(nextLog.size());
+						nextLog.add(reveal1 ? LogEntry.reveal(doubleMove.ticket1, doubleMove.destination1)
+								: LogEntry.hidden(doubleMove.ticket1));
+
+						// 第二步：此时 nextLog.size() 已经增加，刚好对应 setup.moves 的下一个位置
+						boolean reveal2 = setup.moves.get(nextLog.size());
+						nextLog.add(reveal2 ? LogEntry.reveal(doubleMove.ticket2, doubleMove.destination2)
+								: LogEntry.hidden(doubleMove.ticket2));
+
+						// 2. 侦探不参与 DoubleMove 的移动，保持不变
+						List<Player> nextDetectives = MyGameState.this.detectives;
+
+						// 3. 计算下一轮谁动
+						// 注意：DoubleMove 算作 MrX 完成了整个大轮次，接下来通常轮到侦探
+						ImmutableSet<Piece> nextRemaining = calculateNextRemaining(doubleMove.commencedBy(), doubleMove, nextDetectives);
+
+						return new MyGameState(setup, nextRemaining, ImmutableList.copyOf(nextLog), nextMrX, nextDetectives);
+					}
+				});
+			}
+		}
+	}
