@@ -1,0 +1,296 @@
+package uk.ac.bris.cs.scotlandyard.model;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.graph.ImmutableValueGraph;
+
+import io.atlassian.fugue.Pair;
+import jakarta.annotation.Nonnull;
+import uk.ac.bris.cs.scotlandyard.model.Board.GameState;
+import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.Transport;
+
+public class MyAi implements Ai {
+    // CONFIG
+
+    // How many individual player turns to look ahead. (3 means Mr X and 2
+    // detectives)
+    private static final int SEARCH_DEPTH = 3;
+
+    // Stop searching this many milliseconds before the hard timeout
+    private static final long TIME_BUFFER_MS = 500;
+
+    private long searchDeadline;
+
+    @Nonnull
+    @Override
+    public String name() {
+        return "Epsilon Greedy (not really)";
+    }
+
+    @Nonnull
+    @Override
+    public Move pickMove(@Nonnull Board board, Pair<Long, TimeUnit> timeoutPair) {
+        // Convert timeout to milliseconds and sets our deadline
+        long timeoutMs = timeoutPair.right().toMillis(timeoutPair.left());   // Take the time number (left),use the unit (right) to convert it into milliseconds.
+        searchDeadline = System.currentTimeMillis() + timeoutMs - TIME_BUFFER_MS; //We get the current time in milliseconds.We add the allowed thinking time.We subtract 500ms to make sure we stop before the real timeout.This is our deadline to stop searching.
+
+        // Board is always a GameState when the AI is called
+        GameState state = (GameState) board; //Type Casting（类型强制转换）  Board 是 type （interface） ， board是 variable ， GameState（object）
+
+        // Order root moves so the best candidates are tried first
+        List<Move> moves = new ArrayList<>(board.getAvailableMoves()); moves 是 variable, type: List<Move>, from the board getAvailableMoves,  把所有能走的步法，放进一个 List 变量 moves 里
+        orderMovesForMrX(moves, state);  //给 moves 排序的methods
+
+        Move bestMove = moves.get(0);  //bestMove：变量  先随便设成 List 里第一个步法当起点
+        double bestScore = Double.NEGATIVE_INFINITY; //bestScore：变量   设成 smallest（保证任何分数都会比它大）
+
+        for (Move move : moves) {
+            int dest = getDestination(move);  //这一步走完 到哪个位置
+            GameState next = state.advance(move);    //next : variable  GameState:type  作用：模拟走这一步之后的新游戏局面 游戏模型会返回下一步的全新状态
+
+            double score = minimax(
+                    next,
+                    SEARCH_DEPTH - 1,
+                    Double.NEGATIVE_INFINITY,
+                    Double.POSITIVE_INFINITY,
+                    dest); //调用 Minimax 打分
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = move;
+            }
+        }
+
+        return bestMove;
+    }
+
+    // MINIMAX WITH ALPHA-BETA PRUNING
+
+    // state - the current game state to evaluate
+    // depth - remaining plies to search
+    // alpha - best score the MAXIMISER (Mr X) is guaranteed so far
+    // beta - best score the MINIMISER (detectives) is guaranteed so far
+    // mrXLocation - tracked explicitly because the board hides Mr X's position
+
+    // Alpha-beta pruning
+    // When alpha >= beta, the current branch can never affect the final result
+    // because the opponent already has a better option elsewhere
+
+    private double minimax(GameState state, int depth, double alpha, double beta, int mrXLocation) {
+        if (!state.getWinner().isEmpty()) {
+            // Large finite values so terminal wins/losses beat any heuristic score,
+            // but depth still matters (prefer winning sooner, losing later).
+            boolean mrXWins = state.getWinner().stream().anyMatch(Piece::isMrX);
+            return mrXWins ? 1_000_000.0 + depth // win sooner = larger value
+                    : -1_000_000.0 - depth; // loss sooner = smaller value
+        }
+
+        // Leaf - evaluates the position heuristically
+        if (depth == 0)
+            return scoreBoard(state, mrXLocation);
+
+        // fall back to heuristic if running out of time
+        if (System.currentTimeMillis() > searchDeadline)
+            return scoreBoard(state, mrXLocation);
+
+        ImmutableSet<Move> availableMoves = state.getAvailableMoves();
+        boolean isMrXTurn = availableMoves.iterator().next().commencedBy().isMrX();   //.iterator() It is a tool to get elements from a collection
+//Turn = 回合、轮到
+        if (isMrXTurn) {
+            // MAXIMISING NODE (Mr X)
+            List<Move> moves = new ArrayList<>(availableMoves);
+            orderMovesForMrX(moves, state); // try promising moves first
+
+            double best = Double.NEGATIVE_INFINITY;
+
+            for (Move move : moves) {
+                int dest = getDestination(move);
+                GameState next = state.advance(move);
+
+                double score = minimax(next, depth - 1, alpha, beta, dest);
+
+                if (score > best)
+                    best = score;
+                if (best > alpha)
+                    alpha = best;
+
+                // Beta cut-off: detectives already have a response that makes
+                // this branch irrelevant
+                if (beta <= alpha)
+                    break;
+            }
+
+            return best;
+
+        } else {
+            // MINIMISING NODE (Detectives)
+            // Detectives move one at a time, so this handles one detective per
+            // recursive call. Mr X's location stays fixed throughout all
+            // detective plies until it is Mr X's turn again.
+            List<Move> moves = new ArrayList<>(availableMoves);
+            orderMovesForDetectives(moves, state, mrXLocation); // most threatening first
+
+            double best = Double.POSITIVE_INFINITY;
+
+            for (Move move : moves) {
+                GameState next = state.advance(move);
+
+                // mrXLocation is unchanged
+                double score = minimax(next, depth - 1, alpha, beta, mrXLocation);
+
+                if (score < best)
+                    best = score;
+                if (best < beta)
+                    beta = best;
+
+                // Alpha cut-off: Mr X already has a better move elsewhere
+                if (beta <= alpha)
+                    break;
+            }
+
+            return best;
+        }
+    }
+
+    // SCORING FUNCTION
+
+    // Evaluates how good a board position is for Mr X. Higher = better for Mr X.
+    // Three components:
+    // 1. Nearest detective distance (weight 4.0) - a single close detective
+    // is the primary threat and dominates the score
+    // 2. Sum of all detective distances (weight 0.5) - rewards staying spread
+    // away from the whole detective team
+    // 3. Freedom of movement from Mr X's node (weight 1.0) - more exits means
+    // harder to corner and more options next turn
+
+    private double scoreBoard(Board board, int mrXLocation) {      // 输入：棋盘 + MrX 位置 // 输出：分数（越高越好）
+        var graph = board.getSetup().graph; // 地图结构，用来算距离
+
+        // Single Dijkstra from Mr X covers all detectives in one pass
+        Map<Integer, Integer> distFromMrX = dijkstra(graph, mrXLocation); //算 MrX 到任何点走几步能到 //包括所有侦探的位置
+
+        List<Integer> detectiveLocs = getDetectiveLocations(board); //拿到所有侦探的位置
+        if (detectiveLocs.isEmpty())
+            return Double.MAX_VALUE / 2;  //如果没有侦探了 → MrX 无敌！
+
+        int minDist = Integer.MAX_VALUE;  //minDist：最近的侦探距离
+        double sumDist = 0;    /sumDist：所有侦探距离加起来
+
+        for (int loc : detectiveLocs) {
+            int d = distFromMrX.getOrDefault(loc, 99);
+            sumDist += d;
+            if (d < minDist)
+                minDist = d;
+        }
+
+        // A detective is already on Mr X's node //如果侦探已经和 MrX 同位置 → MrX 输了
+        if (minDist == 0)
+            return -1_000_000.0;
+
+        int freedom = graph.adjacentNodes(mrXLocation).size();  //自由度：MrX 周围有几条路可以跑
+
+        return (minDist * 4.0) 
+                + (sumDist * 0.5)
+                + (freedom * 1.0);
+    }
+
+    // MOVE ORDERING
+
+    // Mr X: sort descending by destination connectivity (more exits = better).
+    // Trying the best moves first causes earlier beta cut-offs in the parent
+    // minimising node, pruning more branches.
+    private void orderMovesForMrX(List<Move> moves, Board board) {
+        var graph = board.getSetup().graph; //用来查每个点有几条路可以走
+        moves.sort((a, b) -> {
+            int degA = graph.adjacentNodes(getDestination(a)).size(); //走 a 这一步后，新位置有几条路
+            int degB = graph.adjacentNodes(getDestination(b)).size();
+            return Integer.compare(degB, degA);  /从大到小排序→路多的排前面！
+        });
+    }
+
+    // Detectives: sort ascending by distance to Mr X so the most threatening
+    // moves (closest to Mr X) are tried first.
+    private void orderMovesForDetectives(List<Move> moves, Board board, int mrXLocation) {
+        var graph = board.getSetup().graph;
+        Map<Integer, Integer> distFromMrX = dijkstra(graph, mrXLocation);  //用 Dijkstra 算出 MrX 到所有位置的距离
+        moves.sort((a, b) -> {
+            int dA = distFromMrX.getOrDefault(getDestination(a), 99);
+            int dB = distFromMrX.getOrDefault(getDestination(b), 99);
+            return Integer.compare(dA, dB);//从小到大排序（升序）→ 距离越小 → 排越前面！
+        });
+    }
+
+    // DIJKSTRA
+    // Returns shortest move-count from source to every reachable node.
+    // Edge cost is uniformly 1 (one move per edge, regardless of transport type)
+    // *** technically bfs is better here but planning for future implementations
+
+    private static Map<Integer, Integer> dijkstra(
+            ImmutableValueGraph<Integer, ImmutableSet<Transport>> graph, //输入：地图 + 起点（MrX 位置） //输出：起点到每个点的最短距离
+
+            int source) {
+
+        Map<Integer, Integer> dist = new HashMap<>(); //记录：到每个点要走几步
+        // Entries are [distance, node]
+        PriorityQueue<int[]> pq = new PriorityQueue<>(Comparator.comparingInt(a -> a[0])); //一个工具，帮我们按距离从小到大处理
+
+        dist.put(source, 0);
+        pq.offer(new int[] { 0, source }); //初始化：起点到自己距离 = 0
+
+
+        while (!pq.isEmpty()) { //循环处理每一个点
+            // int[] cur = pq.poll();      //拿出当前最近的点
+            int d = cur[0], node = cur[1]; //d = 距离 node = 当前点
+
+            // Stale entry
+            if (d > dist.getOrDefault(node, Integer.MAX_VALUE))
+                continue;//如果是旧数据，跳过
+
+            for (int neighbour : graph.adjacentNodes(node)) {
+                int nd = d + 1;  //每走一步 +1
+                if (nd < dist.getOrDefault(neighbour, Integer.MAX_VALUE)) {
+                    dist.put(neighbour, nd);  //如果新路线更近，就更新
+                    pq.offer(new int[] { nd, neighbour });  //放进队列继续处理
+                }
+            }
+        }
+
+        return Collections.unmodifiableMap(dist);  //给 scoreBoard 和 orderMoves 用！ //返回最终距离表
+    }
+
+    // HELPERS
+
+    // Extracts the final destination from either move type
+    private static int getDestination(Move move) {  /输入一步移动 → 输出目的地编号（int）
+        return move.accept(new Move.Visitor<Integer>() {  //它能判断这是哪种移动
+            @Override
+            public Integer visit(Move.SingleMove move) {
+                return move.destination;
+            }
+
+            @Override
+            public Integer visit(Move.DoubleMove move) {
+                return move.destination2;
+            }
+        });
+    }
+
+    // Collects every detective's current location from the board
+    private static List<Integer> getDetectiveLocations(Board board) {
+        List<Integer> locs = new ArrayList<>();  //创建空列表，准备装侦探位置
+        for (Piece piece : board.getPlayers()) { //遍历棋盘上所有玩家
+            if (piece.isDetective()) {  
+                board.getDetectiveLocation((Piece.Detective) piece).ifPresent(locs::add); //如果这个侦探有位置，就把位置加到 locs 里
+            }
+        }
+        return locs;
+    }
+}
