@@ -60,29 +60,33 @@ We are given an array $A$ with $n + m$ elements so that the first $n$ elements a
 
 ---
 
-### 4. What is the largest value of $m$ so that we can obtain a runtime of $O(n)$? (difficult!)
-**Solution**: According to the previous exercise, the runtime is $O(m \log(m) + n)$. We need to identify the largest value for $m$ such that $O(m \log(m) + n) = O(n)$. This is equivalent to choosing the largest $m$ such that $O(m \log m) = O(n)$.
+**4. What is the largest value of $m$ so that we can obtain a runtime of $O(n)$? (difficult!)**
 
-First, suppose that $m = \Theta(n/\log(n))$. Then:
+**Solution:** According to the previous exercise, the runtime is $O(m \log(m) + n)$. We need to identify the largest value for $m$ such that $O(m \log(m) + n) = O(n)$. This is equivalent to choosing the largest $m$ such that $O(m \log m) = O(n)$.
+
+First, suppose that $m = \Theta(n / \log(n))$. Then:
 
 $$
 \begin{aligned}
-m \log m &= O(n/\log(n) \cdot \log(n/\log(n))) \\
-&= O(n/\log(n) \cdot (\log(n) - \log\log(n))) \\
-&= O(n + n \log\log(n) / \log(n)) = O(n)
+m \log m &= O(n / \log(n) \cdot \log(n / \log(n))) \\
+&= O(n / \log(n) \cdot (\log(n) - \log \log(n))) \\
+&= O(n + n \log \log(n) / \log(n)) = O(n)
 \end{aligned}
 $$
 
-since both $n$ and $n \log\log(n) / \log(n)$ are in $O(n)$.
+since both $n$ and $n \log \log(n) / \log(n)$ are in $O(n)$.
+
 Next, suppose that $m \in O(n)$ if $m = \Theta(f(n)n / \log(n))$, for some growing (superconstant) function $f$. Then:
+
 $$
-\begin{align*}
+\begin{aligned}
 m \log m &= O(f(n)n / \log(n) \cdot \log(f(n)n / \log(n))) \\
 &= O(f(n)n / \log(n) \cdot (\log(f(n)) + \log(n) - \log \log(n))) \\
-&= O(f(n) \log(f(n))n / \log(n) + f(n)n - f(n)n \log \log(n) / \log(n)) \notin O(n),
-\end{align*}
+&= O(f(n) \log(f(n))n / \log(n) + f(n)n - f(n)n \log \log(n) / \log(n)) \notin O(n)
+\end{aligned}
 $$
-since $f(n) \notin O(n)$ (since $f(n)$ is increasing with $n$ and hence superconstant). This implies that the largest $m$ is in $\Theta(n / \log n)$. ✓
+
+since $f(n)n \notin O(n)$ (since $f(n)$ is increasing with $n$ and hence superconstant). This implies that the largest $m$ is in $\Theta(n / \log n)$.  
 
 ---
 
