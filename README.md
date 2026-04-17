@@ -44,5 +44,6 @@ algorithmnotes/
 | W16 | [归并排序](basics/mergesort.md) / [最大子数组](basics/max-subarray.md) | [Problem Sheet 4](exercises/sheet4.md) |
 | W17 | [树基础](basics/trees.md) / [堆排序](basics/heapsort.md) | [Problem Sheet 5](exercises/sheet5.md) |
 | W19 | [QuickSort & Sorting Lower Bound](basics/quicksort.md) | [Problem Sheet 6](exercises/sheet6.md) |
+[Problem Sheet 6](algorithm/exercises/sheet6.md)
 
     
