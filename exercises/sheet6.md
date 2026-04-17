@@ -63,16 +63,17 @@ We are given an array $A$ with $n + m$ elements so that the first $n$ elements a
 ### 4. What is the largest value of $m$ so that we can obtain a runtime of $O(n)$? (difficult!)
 **Solution**: According to the previous exercise, the runtime is $O(m \log(m) + n)$. We need to identify the largest value for $m$ such that $O(m \log(m) + n) = O(n)$. This is equivalent to choosing the largest $m$ such that $O(m \log m) = O(n)$.
 
-First, suppose that $m = \Theta(n / \log(n))$. Then:
-$$
-\begin{align*}
-m \log m &= O(n / \log(n) \cdot \log(n / \log(n))) \\
-&= O(n / \log(n) \cdot (\log(n) - \log \log(n))) \\
-&= O(n + n \log \log(n) / \log(n)) = O(n),
-\end{align*}
-$$
-since both $n$ and $n \log \log(n) / \log(n)$ are in $O(n)$.
+First, suppose that $m = \Theta(n/\log(n))$. Then:
 
+$$
+\begin{aligned}
+m \log m &= O(n/\log(n) \cdot \log(n/\log(n))) \\
+&= O(n/\log(n) \cdot (\log(n) - \log\log(n))) \\
+&= O(n + n \log\log(n) / \log(n)) = O(n)
+\end{aligned}
+$$
+
+since both $n$ and $n \log\log(n) / \log(n)$ are in $O(n)$.
 Next, suppose that $m \in O(n)$ if $m = \Theta(f(n)n / \log(n))$, for some growing (superconstant) function $f$. Then:
 $$
 \begin{align*}
