@@ -106,24 +106,24 @@ since $f(n) \notin O(n)$ (since $f(n)$ is increasing with $n$ and hence supercon
 **Solution**:
 ```mermaid
 graph TD
-    A[a < b?] -->|Yes| B[c < d?]
-    A -->|No| C[c < d?]
-    
-    B -->|Yes| D[a < c?]
-    B -->|No| E[T<br>(with role of c and d reversed)]
-    
-    C -->|Yes| F[T<br>(with role of a and b reversed)]
-    C -->|No| G[T<br>(with roles of a and b, and c and d reversed)]
-    
-    D -->|Yes| H[b < c?]
-    D -->|No| I[a < d?]
-    
-    H -->|Yes| J[abcd]
-    H -->|No| K[b < d?]
-    K -->|Yes| L[acbd]
-    K -->|No| M[acdb]
-    
-    I -->|Yes| N[b < d?]
-    I -->|No| O[cdab]
-    N -->|Yes| P[cabd]
-    N -->|No| Q[cadb]
+A{a < b?} -- Yes --> B{c < d?}
+A -- No --> C{c < d?}
+
+B -- Yes --> D{a < c?}
+B -- No --> E["E (with role of c and d reversed)"]
+
+C -- Yes --> F["F (with role of a and b reversed)"]
+C -- No --> G["G (with role of a and b, and c and d reversed)"]
+
+D -- Yes --> H{b < c?}
+D -- No --> I{a < d?}
+
+H -- Yes --> J[abcd]
+H -- No --> K{b < d?}
+K -- Yes --> L[acbd]
+K -- No --> M[acdb]
+
+I -- Yes --> N{b < d?}
+I -- No --> O[cdab]
+N -- Yes --> P[cabd]
+N -- No --> Q[cadb]
