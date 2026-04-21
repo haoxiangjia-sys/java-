@@ -1,0 +1,62 @@
+package uk.ac.bris.cs.scotlandyard.model;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
+import jakarta.annotation.Nonnull;
+import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.Factory;
+
+public final class MyModelFactory implements Factory<Model> {
+
+	@Nonnull
+	@Override
+	public Model build(GameSetup setup, Player mrX, ImmutableList<Player> detectives) {
+		return new Model() { //Anonymous Inner Class //An object that implements the Model interface was instantiated.
+			private final List<Observer> observerList = new ArrayList<>(); //observerList: 这是观察者名单。所有想要监听游戏变化的 UI 组件（比如棋盘、记分牌）都会被存在这里
+			private Board.GameState state = new MyGameStateFactory().build(setup, mrX, detectives); //state: 这是当前的游戏状态（棋盘）。它最初由 MyGameStateFactory 创建。注意这里没有用 final，因为游戏进行时 state 会不断更新。
+
+			@Nonnull
+			@Override
+			public Board getCurrentBoard() {
+				return state;
+			}
+
+			@Override
+			public void registerObserver(@Nonnull Observer observer) {
+				if (observer == null)
+					throw new NullPointerException("Observer is null");
+				if (observerList.contains(observer))
+					throw new IllegalArgumentException("Observer already registered");
+				observerList.add(observer);  //允许 UI Subscribe to game updates.
+			}
+
+			@Override
+			public void unregisterObserver(@Nonnull Observer observer) {
+				if (observer == null)
+					throw new NullPointerException("Observer is null");
+				if (!observerList.contains(observer))
+					throw new IllegalArgumentException("Observer not registered");
+				observerList.remove(observer);
+			}
+
+			@Nonnull
+			@Override
+			public ImmutableSet<Observer> getObservers() {
+				return ImmutableSet.copyOf(observerList); //encapsulation
+			}
+
+			@Override
+			public void chooseMove(@Nonnull Move move) {
+				state = state.advance(move);
+				Observer.Event event = state.getWinner().isEmpty()
+						? Observer.Event.MOVE_MADE  // 游戏继续
+						: Observer.Event.GAME_OVER; // 有人赢了
+				for (Observer observer : List.copyOf(observerList))  //Create a list of replicas.  //避免ConcurrentModificationException
+					observer.onModelChanged(state, event); //告诉每一个观察者新的棋盘数据和发生的事件。
+			}
+		};
+	}
+}

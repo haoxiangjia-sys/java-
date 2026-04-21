@@ -32,7 +32,7 @@ public class MyAi implements Ai {
     @Nonnull
     @Override
     public String name() {
-        return "Epsilon Greedy (not really)";
+        return "Epsilon Greedy (not really)"; //ai name
     }
 
     @Nonnull
@@ -46,7 +46,7 @@ public class MyAi implements Ai {
         GameState state = (GameState) board; //Type Casting（类型强制转换）  Board 是 type （interface） ， board是 variable ， GameState（object）
 
         // Order root moves so the best candidates are tried first
-        List<Move> moves = new ArrayList<>(board.getAvailableMoves()); moves 是 variable, type: List<Move>, from the board getAvailableMoves,  把所有能走的步法，放进一个 List 变量 moves 里
+        List<Move> moves = new ArrayList<>(board.getAvailableMoves()); //moves 是 variable, type: List<Move>, from the board getAvailableMoves,  把所有能走的步法，放进一个 List 变量 moves 里
         orderMovesForMrX(moves, state);  //给 moves 排序的methods
 
         Move bestMove = moves.get(0);  //bestMove：变量  先随便设成 List 里第一个步法当起点
@@ -182,7 +182,7 @@ public class MyAi implements Ai {
             return Double.MAX_VALUE / 2;  //如果没有侦探了 → MrX 无敌！
 
         int minDist = Integer.MAX_VALUE;  //minDist：最近的侦探距离
-        double sumDist = 0;    /sumDist：所有侦探距离加起来
+        double sumDist = 0;    //sumDist：所有侦探距离加起来
 
         for (int loc : detectiveLocs) {
             int d = distFromMrX.getOrDefault(loc, 99);
@@ -212,7 +212,7 @@ public class MyAi implements Ai {
         moves.sort((a, b) -> {
             int degA = graph.adjacentNodes(getDestination(a)).size(); //走 a 这一步后，新位置有几条路
             int degB = graph.adjacentNodes(getDestination(b)).size();
-            return Integer.compare(degB, degA);  /从大到小排序→路多的排前面！
+            return Integer.compare(degB, degA);  //从大到小排序→路多的排前面！
         });
     }
 
@@ -269,7 +269,7 @@ public class MyAi implements Ai {
     // HELPERS
 
     // Extracts the final destination from either move type
-    private static int getDestination(Move move) {  /输入一步移动 → 输出目的地编号（int）
+    private static int getDestination(Move move) {  //输入一步移动 → 输出目的地编号（int）
         return move.accept(new Move.Visitor<Integer>() {  //它能判断这是哪种移动
             @Override
             public Integer visit(Move.SingleMove move) {

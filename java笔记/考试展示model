@@ -1,0 +1,323 @@
+package uk.ac.bris.cs.scotlandyard.model;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import javax.annotation.Nonnull;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
+import uk.ac.bris.cs.scotlandyard.model.Board.GameState;
+import uk.ac.bris.cs.scotlandyard.model.Move.DoubleMove;
+import uk.ac.bris.cs.scotlandyard.model.Move.SingleMove;
+import uk.ac.bris.cs.scotlandyard.model.Piece.Detective;
+import uk.ac.bris.cs.scotlandyard.model.Piece.MrX;
+import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.Factory;
+import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.Transport;
+
+public final class MyGameStateFactory implements Factory<GameState> {  //public  The Access Modifier //final: means the class cannot be inherited
+//implements: The keyword used for Interface Inheritance.  //MyGameStateFactory: (name) of the class.  //Factory is the Interface. //<GameState> is the Generic Type Parameter
+	@Nonnull  //mean this way not return the null
+	@Override  // the methed need implements （override  mean replacing a parents method or implement an interface, it provide own specific implement for a method）
+	public GameState build(GameSetup setup, Player mrX, ImmutableList<Player> detectives) {  //it is instantiation  //Build() creates the initial game state.
+		return new MyGameState(setup, ImmutableSet.of(MrX.MRX), ImmutableList.of(), mrX, detectives);  //GameSetup contains game rules and map.
+	} //Immutable means cannot be changed after creation. //MrX.MRX： It’s an enum value (enumeration) inside the Piece.MrX class.  //We use it to identify that it’s Mr.X’s turn to move first.
+
+	private final class MyGameState implements GameState {  //GameState (The Interface): need some methods (like advance() or getWinner()).  //MyGameState (The Implementation): Defines the "How" to come ture
+		private GameSetup setup;  ////GameSetup → type (holds game rules, map, rounds). //setup → attribute.
+		private ImmutableSet<Piece> remaining; //type (unchangeable set of players). //remaining → stores which players still need to move.
+		private ImmutableList<LogEntry> log;
+		private Player mrX;
+		private List<Player> detectives;
+		private ImmutableSet<Move> moves;
+		private ImmutableSet<Piece> winner;  //private：Encapsulation. By making attributes private, we protect the Internal State of the MyGameState object.
+
+		private MyGameState(  // this is constructor  //It creates a new MyGameState object.
+				final GameSetup setup,
+				final ImmutableSet<Piece> remaining,//final: means the class cannot be inherited
+				final ImmutableList<LogEntry> log,
+				final Player mrX,
+				final List<Player> detectives) {
+
+			if (!mrX.isMrX())
+				throw new IllegalArgumentException("No mrX!"); //throw A Warning: There is an error. avoid null
+			if (detectives.isEmpty())//If invalid → throw Exception  //If the game state is wrong → stop and show error.
+				throw new IllegalArgumentException("Detectives is empty!");
+			if (setup.moves.isEmpty())
+				throw new IllegalArgumentException("Moves is empty!");
+			if (setup.graph.edges().isEmpty())
+				throw new IllegalArgumentException("Graph is empty!");
+
+			Set<Integer> locations = new HashSet<>(); //Set<Integer> = A Set of Integer values //HashSet<>() = An implementation of the Set interface
+			Set<Piece> pieces = new HashSet<>(); //Set = A collection that does NOT allow duplicates  //Purpose: To check that no two detectives are on the same spot.
+
+			for (Player d : detectives) {  //For-Each Loop//It loops through every element in the detectives list.
+				if (!pieces.add(d.piece())) //If the element is not in the collection, the addition is successful and returns true.
+					throw new IllegalArgumentException("Duplicated detectives");
+				if (!locations.add(d.location()))//If invalid → throw Exception  //If the game state is wrong → stop and show error.
+					throw new IllegalArgumentException("Detectives sharing same location");
+			}
+
+			for (Player d : detectives) {
+				if (d.has(ScotlandYard.Ticket.SECRET))
+					throw new IllegalArgumentException("Detective should not have secret tickets");
+				if (d.has(ScotlandYard.Ticket.DOUBLE))
+					throw new IllegalArgumentException("Detective should not have double tickets");
+			}
+
+			this.setup = setup;////Finally, it assigns all values to the fields,
+			this.remaining = remaining;
+			this.log = log;
+			this.mrX = mrX;
+			this.detectives = detectives;
+			this.winner = getWinner(); //It wasn't transmitted from outside, it is calculated based on the data that was just saved.
+			this.moves = getAvailableMoves();
+		}
+
+		@Nonnull//mean this way not return the null
+	    @Override  // the methed need implements （override  mean replacing a parents method or implement an interface, it provide own specific implement for a method）
+		public GameSetup getSetup() { //GameSetup: Return type  // A getter method
+			return setup;   //return setup: Returns the game’s  (map, rules, rounds)
+		}
+
+		@Nonnull
+		@Override
+		public ImmutableSet<Piece> getPlayers() {
+			List<Piece> all = new ArrayList<>();  //Creates a new list （Order）
+			all.add(mrX.piece()); //Adds MrX’s piece
+			for (Player d : detectives)
+				all.add(d.piece());  //Uses a for-each loop to add all detective pieces
+			return ImmutableSet.copyOf(all); //Converts to immutable set and set can avoid Duplicates
+		}
+
+		@Nonnull
+		@Override
+		public ImmutableSet<Piece> getWinner() {
+			ImmutableSet<Piece> detectivePieces = ImmutableSet.copyOf(
+					detectives.stream().map(Player::piece).collect(Collectors.toSet()));
+
+			// Detectives win
+
+			// 1. A detective has landed on the same station as MrX
+			for (Player d : detectives) { 
+				if (d.location() == mrX.location()) //detective catch mrx
+					return detectivePieces; 
+			}
+
+			// 2. MrX has no stations to travel to (cornered) and it is his turn
+			if (remaining.contains(MrX.MRX) && makeSingleMoves(setup, detectives, mrX, mrX.location()).isEmpty() //It is MrX’s turn to move right now. //He cannot move anywhere.
+					&& log.size() < setup.moves.size()) { / the game not over
+				return detectivePieces;
+			}
+
+			// MrX wins
+
+			// 3. The travel log is completely filled and it is back to MrX's turn
+			// (detectives have already taken their final moves without catching him)
+			if (log.size() >= setup.moves.size() && remaining.contains(MrX.MRX)) { //The game rounds are finished  //He survived all rounds
+				return ImmutableSet.of(MrX.MRX);
+			}
+
+			// 4. Every detective is stuck (no tickets / no reachable nodes) – evaluated
+			// at the start of MrX's turn so we know all detectives have been checked
+			boolean allDetectivesStuck = detectives.stream() //侦探转换为 stream    //.allMatch有元素都满足条件时，才返回 true
+					.allMatch(d -> makeSingleMoves(setup, detectives, d, d.location()).isEmpty()); //only if ALL detectives have no moves. returns true
+
+			if (allDetectivesStuck && remaining.contains(MrX.MRX)) { //All detectives can’t move. //It is MrX’s turn now.
+				return ImmutableSet.of(MrX.MRX);
+			}
+			return ImmutableSet.of(); //If no winner, return empty set.
+		}
+
+		@Nonnull
+		@Override                               //Detective (Parameter Type） //detective (Parameter Name）
+		public Optional<Integer> getDetectiveLocation(Detective detective) { //Optional<Integer>: Return type — returns a location or nothing (if not found) //Optional is used to avoid null pointers.
+			for (Player d : detectives) { //Loop through all detectives
+				if (d.piece() == detective)
+					return Optional.of(d.location());
+			}
+			return Optional.empty();
+		}
+
+		@Nonnull
+		@Override
+		public Optional<TicketBoard> getPlayerTickets(Piece piece) { //（Piece = the TYPE (class / enum)，piece = the PARAMETER NAME）
+			if (piece == mrX.piece())
+				return Optional.of(t -> mrX.tickets().get(t));  //First, check if the piece is MrX，If yes → return MrX’s tickets
+
+			for (Player d : detectives) {
+				if (d.piece() == piece)
+					return Optional.of(t -> d.tickets().get(t));  //If not MrX, loop through detectives，Find the matching detective
+			}
+			return Optional.empty();  //If no player found → return Optional.empty()
+		}
+
+		@Nonnull
+		@Override
+		public ImmutableList<LogEntry> getMrXTravelLog() {
+			return log;
+		}
+
+		private static ImmutableSet<SingleMove> makeSingleMoves( //private static: Only for internal use, belongs to the class  static ：no override
+				GameSetup setup, List<Player> detectives, Player player, int source) {  //source: current location of the player
+
+			Set<Integer> occupiedByDetective = new HashSet<>();
+			for (Player d : detectives) {
+				occupiedByDetective.add(d.location());
+			}//Saves all locations have detectives 
+
+			Set<SingleMove> singleMoves = new HashSet<>();
+
+			for (int destination : setup.graph.adjacentNodes(source)) {  //Loop through all nearby stations //source: current location of the player
+				if (occupiedByDetective.contains(destination))  //If a detective is there → skip this destination //because the the detective and mrx cannot in the same place
+					continue; // if skip ,back the loop
+
+				for (Transport t : setup.graph.edgeValueOrDefault(source, destination, ImmutableSet.of())) {
+					if (player.has(t.requiredTicket())) {
+						singleMoves.add(new SingleMove(player.piece(), source, t.requiredTicket(), destination));
+					}
+				}//If player has the correct ticket → add the move
+
+				if (player.has(ScotlandYard.Ticket.SECRET)) {//If player has a secret ticket → can move to any adjacent node
+					singleMoves.add(new SingleMove(player.piece(), source, ScotlandYard.Ticket.SECRET, destination)); //new SingleMove is Object Instantiation
+				}
+			}
+			return ImmutableSet.copyOf(singleMoves);  // immutable set and set can avoid Duplicates
+		}
+
+		private static ImmutableSet<DoubleMove> makeDoubleMoves(
+				GameSetup setup, List<Player> detectives, Player player, int source,
+				ImmutableList<LogEntry> log) {
+
+			Set<DoubleMove> doubleMoves = new HashSet<>();
+
+			// Can only do a double move if:
+			// 1. Player has a double ticket
+			// 2. There are at least 2 moves remaining in the setup
+			if (!player.has(ScotlandYard.Ticket.DOUBLE) || setup.moves.size() - log.size() < 2)
+				return ImmutableSet.of();
+
+			Set<SingleMove> firstMoves = makeSingleMoves(setup, detectives, player, source); 
+
+			for (SingleMove first : firstMoves) {
+				// Temporarily "spend" the first move ticket to check if second move is valid
+				Player playerAfterFirst = player.use(ScotlandYard.Ticket.DOUBLE).use(first.ticket);
+
+				Set<SingleMove> secondMoves = makeSingleMoves(setup, detectives, playerAfterFirst, first.destination);
+
+				for (SingleMove second : secondMoves) {
+					doubleMoves.add(new Move.DoubleMove(
+							player.piece(),
+							source, first.ticket, first.destination,
+							second.ticket, second.destination)); //new Move.DoubleMove is Object Instantiation 是两个firstmove
+				}
+			}
+			return ImmutableSet.copyOf(doubleMoves); //immutable set and set can avoid Duplicates
+		}
+
+		@Nonnull
+		@Override
+		public ImmutableSet<Move> getAvailableMoves() {
+			if (!winner.isEmpty())  //game over
+				return ImmutableSet.of();
+
+			Set<Move> allMoves = new HashSet<>();
+
+			if (remaining.contains(mrX.piece())) { //If it’s MrX’s turn → add all single moves + all double moves.
+				allMoves.addAll(makeSingleMoves(setup, detectives, mrX, mrX.location()));
+				allMoves.addAll(makeDoubleMoves(setup, detectives, mrX, mrX.location(), log));
+			} else {
+				for (Player detective : detectives) {
+					if (remaining.contains(detective.piece())) {
+						allMoves.addAll(makeSingleMoves(setup, detectives, detective, detective.location()));  //Loop through detectives.If it’s a detective’s turn → add their single moves.
+					}
+				}
+			}
+			return ImmutableSet.copyOf(allMoves); //immutable set and set can avoid Duplicates
+		}
+
+        @Nonnull
+		@Override
+		public GameState advance(Move move) { //makes a move and creates a NEW game state
+			if (!moves.contains(move)) //moves: 这是一个 Attribute (属性) 是合法步 //move: 这是一个 Method
+				throw new IllegalArgumentException("Illegal move: " + move);
+
+			return move.accept(new Move.Visitor<GameState>() { //move.accept(...) is Polymorphism 和Visitor Pattern //new Move.Visitor<GameState>() { ... }  Anonymous Inner Class 
+                //1，调用 move.accept(visitor)。此时，move 对象知道自己是 SingleMove //2，在 SingleMove 的内部，它执行 visitor.visit(this) ，用visit(SingleMove m) 方法
+				// Visitor 模式的advantage is Avoids Type Casting 不需要手动写 (SingleMove) move
+				@Override
+				public GameState visit(Move.SingleMove m) {   //executes specifically when the move is a SingleMove
+					if (m.commencedBy().isMrX()) {  //If the move is made by MrX
+						Player newMrX = mrX.use(m.ticket).at(m.destination);  //Create new MrX at new location, using the ticket
+
+						LogEntry entry = setup.moves.get(log.size())  //This creates a log entry to record his move, either revealing or hiding his position.
+								? LogEntry.reveal(m.ticket, m.destination)
+								: LogEntry.hidden(m.ticket);
+
+						ImmutableList<LogEntry> newLog = ImmutableList.<LogEntry>builder() //ImmutableList 不能直接 .add()
+								.addAll(log).add(entry).build();  //.addAll(log)：把旧的日志全部复制过来 //.add(entry1).add(entry2)：追加这两步新动作。//.build()：正式生成新的不可变列表。
+
+						ImmutableSet<Piece> newRemaining = ImmutableSet.copyOf( //immutable set and set can avoid Duplicates
+								detectives.stream().map(Player::piece).collect(Collectors.toList()));  //After Mr. X moves, the next turn belongs to all the detectives.
+
+						return new MyGameState(setup, newRemaining, newLog, newMrX, detectives);
+					} else {  // this is detective time
+						List<Player> newDetectives = detectives.stream()
+								.map(d -> d.piece() == m.commencedBy() ? d.use(m.ticket).at(m.destination) : d) //If the move is made by detective use票 at the destination ， if not return the old 侦探
+								.collect(Collectors.toList());  //collect a list
+
+						Player newMrX = mrX.give(m.ticket);  //After a detective uses a ticket, it is given back to Mr. X.
+
+						Set<Piece> remainingPieces = remaining.stream() //if the detective moved ，removed from the remaining list.
+								.filter(p -> p != m.commencedBy())
+								.collect(Collectors.toCollection(HashSet::new));  
+
+						remainingPieces.removeIf(p -> newDetectives.stream()  //.filter This method removes elements from the set if the condition is true.
+								.filter(d -> d.piece() == p)       //We find the detective that matches the piece p
+								.findFirst()         //Return the first element in the stream that satisfies the previous condition 
+								.map(d -> makeSingleMoves(setup, newDetectives, d, d.location()).isEmpty())  //if ture → The detective has NO moves → he is stuck.
+								.orElse(false)); //If the detective is not found → do not remove.
+
+						ImmutableSet<Piece> newRemaining = remainingPieces.isEmpty()  //We take the current remaining list  
+								? ImmutableSet.of(MrX.MRX) //If the remaining list is empty, it means all detectives have moved.//The turn automatically switches back to Mr. X.
+								: ImmutableSet.copyOf(remainingPieces);
+
+						return new MyGameState(setup, newRemaining, log, newMrX, newDetectives);
+					}
+				}
+
+				@Override
+				public GameState visit(Move.DoubleMove m) { //Interface renew the mrx state
+					Player newMrX = mrX
+							.use(ScotlandYard.Ticket.DOUBLE)
+							.use(m.ticket1)
+							.use(m.ticket2)
+							.at(m.destination2);
+
+					LogEntry entry1 = setup.moves.get(log.size())
+							? LogEntry.reveal(m.ticket1, m.destination1) //True：调用 LogEntry.reveal，玩家可以看到车票和具体位置
+							: LogEntry.hidden(m.ticket1);  //False：调用 LogEntry.hidden，玩家只能看到他用了什么票，但不知道他在哪。
+
+					LogEntry entry2 = setup.moves.get(log.size() + 1)
+							? LogEntry.reveal(m.ticket2, m.destination2)
+							: LogEntry.hidden(m.ticket2);
+
+					ImmutableList<LogEntry> newLog = ImmutableList.<LogEntry>builder()  //ImmutableList 不能直接 .add()
+							.addAll(log).add(entry1).add(entry2).build(); //.addAll(log)：把旧的日志全部复制过来 //.add(entry1).add(entry2)：追加这两步新动作。//.build()：正式生成新的不可变列表。
+
+					ImmutableSet<Piece> newRemaining = ImmutableSet.copyOf(
+							detectives.stream().map(Player::piece).collect(Collectors.toList()));
+//detectives.stream()We take all the detectives in the game.
+//.map(Player::piece)We convert each detective Player into their Piece .
+//.collect(Collectors.toList())We collect all those detective pieces into a list.
+					return new MyGameState(setup, newRemaining, newLog, newMrX, detectives);
+				}
+			});
+		}
+	}
+}

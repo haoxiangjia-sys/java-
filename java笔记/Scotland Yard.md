@@ -433,11 +433,6 @@ return new MyGameState(setup, newRemaining, newLog, newMrX, detectives);
 （4）.findFirst() (Terminal Operation) //Return the first element in the stream that satisfies the previous condition 
                  //if not found then return Optional.empty()    Avoid nullpointerexception
 （5）.filter //If the conditions are met, proceed to the next step; otherwise, discard it.
-（6）.flatMap //map transform a to b
-//flat (flatten扁平化/拆解)  removed the Stream's outer casing.   
-Nested structure 嵌套
-单层流	Flat stream
-Parentheses ()
 
 （7） :: (Method Reference)    //Player::piece   （the logic is exactly the piece method inside the Player class.）
       -> (lambda)             //player -> player.piece() (take a player object and retrieve its piece.)
@@ -464,79 +459,6 @@ toSet()： Put these elements into a Set
 //List<SingleMove> moves：这是声明Declaration   I defined a variable named moves to store SingleMove objects.
 //new ArrayList<>()：这是实例化（Instantiation） order to Store data
 （16）
-
-
-
-# my modelfactory
-
-public final class MyModelFactory implements Factory<Model> {
-
-    @Nonnull
-    @Override
-    public Model build(GameSetup setup, Player mrX, ImmutableList<Player> detectives) {
-
-        // anon class
-        return new Model() {
-            List<Model.Observer> observerList = new ArrayList<>();
-            MyGameStateFactory factory = new MyGameStateFactory();
-
-            Board.GameState State = factory.build(setup, mrX, detectives);
-
-            @Nonnull
-            @Override
-            public Board getCurrentBoard() {
-                return State;
-            }
-
-            @Override
-            public void registerObserver(@Nonnull Observer observer) {
-                if (observer == null) {
-                    throw new NullPointerException("null observer");
-                }
-                if (observerList.contains(observer))
-                    throw new IllegalArgumentException("the observer is already registered");
-
-                observerList.add(observer);
-            }
-
-            @Override
-            public void unregisterObserver(@Nonnull Observer observer) {
-                if (observer == null)
-                    throw new NullPointerException("Observer is null!");
-
-                if (!observerList.contains(observer)) throw new IllegalArgumentException("Observer isn't registered!");
-                observerList.remove(observer);
-            }
-
-            @Nonnull
-            @Override
-            public ImmutableSet<Observer> getObservers() {
-                return ImmutableSet.copyOf(observerList);
-            }
-
-            @Override
-            public void chooseMove(@Nonnull Move move) {
-                State = State.advance(move);
-                Observer.Event event;
-                if (State.getWinner().isEmpty()) event = Observer.Event.MOVE_MADE;
-                else event = Observer.Event.GAME_OVER;
-                for (Observer observe : observerList) observe.onModelChanged(State, event);
-            }
-
-        };
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
 
 
 

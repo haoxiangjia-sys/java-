@@ -11,7 +11,7 @@ import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.Transport;
 public final class MyGameStateFactory implements Factory<GameState> {  // mygamestatefactory is the implement , gamestate is interface
 
 	@Nonnull  //mean this way not return the null
-	@Override  // the methed need implements 
+	@Override  // the methed need implements （override  mean replacing a parents method or implement an interface, it provide own specific implement for a method）
 	public GameState build(GameSetup setup, Player mrX, ImmutableList<Player> detectives) {
 		return new MyGameState(setup, ImmutableSet.of(MrX.MRX), ImmutableList.of(), mrX, detectives);
 	}
@@ -28,9 +28,6 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 //Player is a type, mrX is the parameter name.
 //ImmutableList<Player> is a type, detectives is the parameter name.
 
-//This method creates and returns a new MyGameState.
-
-
 
 	private final class MyGameState implements GameState {
 		private GameSetup setup; //GameSetup → type (holds game rules, map, rounds). //setup → variable name.
@@ -43,12 +40,8 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 		private ImmutableSet<Piece> winner;
 //private → access modifier (encapsulation, not accessible from outside).
 //final → means this class cannot be inherited/extended
-//class → it’s a Java class.
 //MyGameState → the name of the class.
 //implements GameState → this class provides an implementation for the GameState interface
-
-
-
 
 
 		private MyGameState(
@@ -60,7 +53,7 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 //This is a CONSTRUCTOR //It creates a new MyGameState object.
 
 			if (!mrX.isMrX())
-				throw new IllegalArgumentException("No mrX!");
+				throw new IllegalArgumentException("No mrX!"); 
 			if (detectives.isEmpty())
 				throw new IllegalArgumentException("Detectives is empty!");
 			if (setup.moves.isEmpty())
@@ -107,7 +100,7 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 		}
 //GameSetup: Return type
 //getSetup(): A getter method
-//return setup: Returns the game’s configuration (map, rules, rounds)
+//return setup: Returns the game’s  (map, rules, rounds)
 
 		@Nonnull
 		@Override
@@ -125,7 +118,6 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 			ImmutableSet<Piece> detectivePieces = ImmutableSet.copyOf(
 					detectives.stream().map(Player::piece).collect(Collectors.toSet()));
 
-			// Detectives win
 
 			// 1. A detective has landed on the same station as MrX
 			for (Player d : detectives) {
@@ -173,17 +165,15 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 		@Override
 		public Optional<TicketBoard> getPlayerTickets(Piece piece) { //（Piece = the TYPE (class / enum)，piece = the PARAMETER NAME）
 			if (piece == mrX.piece())
-				return Optional.of(t -> mrX.tickets().get(t));
+				return Optional.of(t -> mrX.tickets().get(t));  //First, check if the piece is MrX，If yes → return MrX’s tickets
 
 			for (Player d : detectives) {
 				if (d.piece() == piece)
-					return Optional.of(t -> d.tickets().get(t));
+					return Optional.of(t -> d.tickets().get(t));  //If not MrX, loop through detectives，Find the matching detective
 			}
-			return Optional.empty();
+			return Optional.empty();  //If no player found → return Optional.empty()
 		}
-//First, check if the piece is MrX，If yes → return MrX’s tickets
-//If not MrX, loop through detectives，Find the matching detective
-//If no player found → return Optional.empty()
+
 
 		@Nonnull
 		@Override
@@ -201,9 +191,9 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 
 			Set<SingleMove> singleMoves = new HashSet<>();
 
-			for (int destination : setup.graph.adjacentNodes(source)) {  //Loop through all nearby stations
-				if (occupiedByDetective.contains(destination))  //If a detective is there → skip this destination
-					continue;
+			for (int destination : setup.graph.adjacentNodes(source)) {  //Loop through all nearby stations //source: current location of the player
+				if (occupiedByDetective.contains(destination))  //If a detective is there → skip this destination //because the the detective and mrx cannot in the same place
+					continue; // if skip back the loop
 
 				for (Transport t : setup.graph.edgeValueOrDefault(source, destination, ImmutableSet.of())) {
 					if (player.has(t.requiredTicket())) {
@@ -301,12 +291,12 @@ public final class MyGameStateFactory implements Factory<GameState> {  // mygame
 						Player newMrX = mrX.give(m.ticket);  //After a detective uses a ticket, it is given back to Mr. X.
 
 						Set<Piece> remainingPieces = remaining.stream()
-								.filter(p -> p != m.commencedBy())
+								.filter(p -> p != m.commencedBy())  //.filter //If the conditions are met, proceed to the next step; otherwise, discard it.
 								.collect(Collectors.toCollection(HashSet::new));  //The detective who just moved is removed from the remaining list.
 
 						remainingPieces.removeIf(p -> newDetectives.stream()  //This method removes elements from the set if the condition is true.
-								.filter(d -> d.piece() == p)       //We find the detective that matches the piece p
-								.findFirst()
+								.filter(d -> d.piece() == p)   .filter //If the conditions are met, proceed to the next step; otherwise, discard the detective equal the piece p
+								.findFirst()  
 								.map(d -> makeSingleMoves(setup, newDetectives, d, d.location()).isEmpty())  //if ture → The detective has NO moves → he is stuck.
 								.orElse(false)); //If the detective is not found → do not remove.
 
